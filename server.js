@@ -1,5 +1,5 @@
 const http = require('http');
-const { exec } = require('child_process');
+const WebSocket = require('ws');
 
 const server = http.createServer(async (req, res) => {
     // Разрешаем CORS
@@ -21,32 +21,38 @@ const server = http.createServer(async (req, res) => {
                 const data = JSON.parse(body);
                 const text = data.text || '';
                 
-                console.log('Получен текст:', text);
+                console.log('Получен текст для поиска:', text);
                 
-                // На Render нельзя открывать браузер, поэтому возвращаем URL
-                const url = `https://yandex.ru/search?text=${encodeURIComponent(text)}`;
+                // Отправляем всем подключенным клиентам
+                if (wss) {
+                    wss.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN) {
+                            client.send(JSON.stringify({
+                                type: 'open_url',
+                                text: text,
+                                timestamp: new Date().toISOString()
+                            }));
+                        }
+                    });
+                }
                 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ 
                     success: true, 
-                    text: text,
-                    url: url,
-                    message: 'На локальном сервере бы открылся браузер с этим URL'
+                    message: 'Команда отправлена на клиент'
                 }));
                 
             } catch (error) {
+                console.error('Ошибка:', error);
                 res.writeHead(500);
                 res.end(JSON.stringify({ error: 'Invalid JSON' }));
             }
         });
     } else if (req.url === '/' && req.method === 'GET') {
-        // Добавляем корневой маршрут для проверки
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ 
-            message: 'Сервер работает на Render!',
-            endpoints: {
-                'POST /open': 'Принимает JSON с текстом для поиска'
-            }
+            message: 'WebSocket proxy сервер работает!',
+            connected_clients: wss ? wss.clients.size : 0
         }));
     } else {
         res.writeHead(404);
@@ -54,9 +60,26 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-// Получаем порт из переменных окружения Render
-const PORT = process.env.PORT || 3000;
+// WebSocket сервер
+const wss = new WebSocket.Server({ noServer: true });
 
+wss.on('connection', (ws) => {
+    console.log('Новый клиент подключен');
+    
+    ws.on('close', () => {
+        console.log('Клиент отключен');
+    });
+});
+
+// Обработка upgrade для WebSocket
+server.on('upgrade', (request, socket, head) => {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+    });
+});
+
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`WebSocket доступен по wss://your-render-app.onrender.com`);
 });
