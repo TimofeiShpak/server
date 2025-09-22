@@ -1,44 +1,82 @@
 const express = require('express');
-const cors = require('cors');
-const app = express();
+const axios = require('axios');
+const WebSocket = require('ws');
+const http = require('http');
 
-// Middleware
-app.use(cors());
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
 app.use(express.json());
 
-// Базовый маршрут
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Сервер работает на Render!', 
-    timestamp: new Date().toISOString()
-  });
+// Хранилище подключенных клиентов
+const clients = new Map();
+
+// WebSocket соединение для локальных клиентов
+wss.on('connection', (ws, req) => {
+    const clientId = Math.random().toString(36).substr(2, 9);
+    clients.set(clientId, ws);
+    
+    console.log(`Новое подключение: ${clientId}`);
+    
+    ws.on('close', () => {
+        clients.delete(clientId);
+        console.log(`Отключение: ${clientId}`);
+    });
 });
 
-// Пример API маршрута
-app.get('/api/users', (req, res) => {
-  const users = [
-    { id: 1, name: 'Иван', email: 'ivan@example.com' },
-    { id: 2, name: 'Мария', email: 'maria@example.com' },
-    { id: 3, name: 'Алексей', email: 'alexey@example.com' }
-  ];
-  res.json(users);
+// Маршрут для Алисы
+app.post('/alice-webhook', async (req, res) => {
+    try {
+        const { request, session, version } = req.body;
+        
+        if (request.command.toLowerCase().includes('открой сайт')) {
+            // Извлекаем текст из команды
+            const text = request.command.replace(/открой сайт/gi, '').trim();
+            
+            if (clients.size === 0) {
+                return res.json({
+                    response: {
+                        text: "Устройство не подключено к серверу",
+                        end_session: true
+                    },
+                    version
+                });
+            }
+
+            // Отправляем команду всем подключенным клиентам
+            clients.forEach((ws, clientId) => {
+                ws.send(JSON.stringify({
+                    type: 'open_url',
+                    text: text,
+                    timestamp: new Date().toISOString()
+                }));
+            });
+
+            return res.json({
+                response: {
+                    text: `Открываю сайт с текстом: ${text}`,
+                    end_session: true
+                },
+                version
+            });
+        }
+
+        res.json({
+            response: {
+                text: "Не поняла команду. Скажите 'Открой сайт [текст]'",
+                end_session: true
+            },
+            version
+        });
+
+    } catch (error) {
+        console.error('Ошибка:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
-// Обработка POST запросов
-app.post('/api/contact', (req, res) => {
-  const { name, email, message } = req.body;
-  console.log('Получено сообщение:', { name, email, message });
-  res.json({ success: true, message: 'Сообщение получено' });
-});
-
-// Обработка ошибок 404
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Маршрут не найден' });
-});
-
-// Получение порта из переменных окружения или использование 3000
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Сервер запущен на порту ${PORT}`);
+server.listen(PORT, () => {
+    console.log(`Proxy server running on port ${PORT}`);
 });
