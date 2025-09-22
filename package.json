@@ -1,15 +1,13 @@
 {
-  "name": "alice-web-client",
+  "name": "render-search-server",
   "version": "1.0.0",
-  "main": "alice-client.js",
+  "description": "Server for Yandex search",
+  "main": "server.js",
   "scripts": {
-    "start": "node alice-client.js",
-    "server": "node proxy-server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
-  "dependencies": {
-    "ws": "^8.12.0",
-    "express": "^4.18.2",
-    "axios": "^1.4.0",
-    "electron": "^25.0.0"
-  }
+  "keywords": ["search", "yandex", "server"],
+  "author": "Your Name",
+  "license": "MIT"
 }
