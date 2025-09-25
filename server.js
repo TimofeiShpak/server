@@ -2,6 +2,11 @@ const http = require('http');
 const WebSocket = require('ws');
 
 const server = http.createServer(async (req, res) => {
+    // Разрешаем CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
@@ -22,6 +27,9 @@ const server = http.createServer(async (req, res) => {
             console.error('Ошибка:', error);
         }
     });
+
+    res.writeHead(200);
+    return res.end();
 });
 
 // WebSocket сервер
