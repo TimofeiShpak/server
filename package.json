@@ -4,7 +4,7 @@
   "description": "Клиент для получения команд от Яндекс Алисы",
   "main": "client.js",
   "scripts": {
-    "start": "node client.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "ws": "^8.14.2"
