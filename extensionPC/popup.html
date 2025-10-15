@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { 
+            width: 300px; 
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .status { 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .reconnecting { background: #fff3cd; color: #856404; }
+        button { 
+            width: 100%; 
+            padding: 10px; 
+            margin: 5px 0;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h3>Alice Client</h3>
+    
+    <div id="status" class="status">Загрузка...</div>
+    
+    <button id="connectBtn">Подключиться</button>
+    <button id="disconnectBtn">Отключиться</button>
+    
+    <div id="info">
+        <p><strong>Статус:</strong> <span id="statusText">-</span></p>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+CreateObject("Wscript.Shell").Run "node ""C:\repos\server\client\pc.js""", 0, False

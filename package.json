@@ -7,6 +7,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "loudness": "^0.4.2",
     "ws": "^8.14.2"
   }
 }
