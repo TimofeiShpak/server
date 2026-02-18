@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Alice Client</title>
+
+<style>
+    body{
+        font-family: Arial, sans-serif;
+        width: 220px;
+        padding: 15px;
+        background:#111;
+        color:#eee;
+    }
+
+    h3{
+        margin:0 0 10px 0;
+        font-size:16px;
+    }
+
+    #status{
+        padding:8px;
+        border-radius:8px;
+        margin-bottom:12px;
+        text-align:center;
+        font-weight:bold;
+    }
+
+    .on{ background:#1e8e3e; }
+    .off{ background:#b3261e; }
+    .wait{ background:#b87a00; }
+
+    button{
+        width:100%;
+        padding:10px;
+        margin-top:6px;
+        border:none;
+        border-radius:8px;
+        cursor:pointer;
+        font-size:14px;
+    }
+</style>
+</head>
+
+<body>
+
+<h3>Alice socket</h3>
+
+<div id="status" class="off">Проверка...</div>
+
+<button id="connect">Подключить</button>
+<button id="disconnect">Отключить</button>
+
+<script src="popup.js"></script>
+</body>
+</html>
