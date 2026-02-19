@@ -7,7 +7,6 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@nut-tree-fork/nut-js": "^4.2.6",
     "ws": "^8.19.0"
   }
 }

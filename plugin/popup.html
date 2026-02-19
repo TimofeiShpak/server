@@ -1,56 +1,57 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>Alice Client</title>
+    <meta charset="UTF-8">
+    <title>Alice Status</title>
+    <style>
+        body{
+            margin:0;
+            padding:20px;
+            width:220px;
+            font-family:Arial, sans-serif;
+            background:#111;
+            color:#fff;
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+        }
 
-<style>
-    body{
-        font-family: Arial, sans-serif;
-        width: 220px;
-        padding: 15px;
-        background:#111;
-        color:#eee;
-    }
+        #status{
+            font-size:16px;
+            font-weight:bold;
+            margin-top:10px;
+        }
 
-    h3{
-        margin:0 0 10px 0;
-        font-size:16px;
-    }
+        .dot{
+            width:14px;
+            height:14px;
+            border-radius:50%;
+            margin-bottom:8px;
+        }
 
-    #status{
-        padding:8px;
-        border-radius:8px;
-        margin-bottom:12px;
-        text-align:center;
-        font-weight:bold;
-    }
+        .connected{
+            background:#00ff66;
+            box-shadow:0 0 8px #00ff66;
+        }
 
-    .on{ background:#1e8e3e; }
-    .off{ background:#b3261e; }
-    .wait{ background:#b87a00; }
+        .disconnected{
+            background:#ff3b3b;
+            box-shadow:0 0 8px #ff3b3b;
+        }
 
-    button{
-        width:100%;
-        padding:10px;
-        margin-top:6px;
-        border:none;
-        border-radius:8px;
-        cursor:pointer;
-        font-size:14px;
-    }
-</style>
+        .title{
+            font-size:14px;
+            opacity:0.7;
+        }
+    </style>
 </head>
-
 <body>
 
-<h3>Alice socket</h3>
+    <div class="title">Alice Bridge</div>
+    <div id="dot" class="dot disconnected"></div>
+    <div id="status">Проверка...</div>
 
-<div id="status" class="off">Проверка...</div>
-
-<button id="connect">Подключить</button>
-<button id="disconnect">Отключить</button>
-
-<script src="popup.js"></script>
+    <script src="popup.js"></script>
 </body>
 </html>

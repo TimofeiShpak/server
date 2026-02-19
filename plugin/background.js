@@ -1,266 +1,253 @@
-const PROXY_SERVER = 'wss://server-03cr.onrender.com';
+// background.js
 
-let nativeWS = null;
-let ws = null;
-let reconnectAttempts = 0;
-let manualClose = false;
-let cinemaLaunched = false;
+let bridge = null;
+let reconnectTimer = null;
+let searchOpening = false;
 
-const maxReconnectAttempts = 10;
-const reconnectDelay = 4000;
+const BRIDGE_URL = "ws://localhost:3001";
 
 //
-// ================= NATIVE BRIDGE =================
+// ================= CONNECT BRIDGE =================
 //
 
-function connectNative(){
-
-    if(nativeWS && nativeWS.readyState === 1) return;
-
-    try{
-        nativeWS = new WebSocket("ws://localhost:8765");
-
-        nativeWS.onopen = ()=>{
-            console.log("🟢 native bridge connected");
-        };
-
-        nativeWS.onclose = ()=>{
-            console.log("🔴 native bridge disconnected");
-            setTimeout(connectNative, 3000);
-        };
-
-        nativeWS.onerror = ()=>{
-            console.log("native bridge error");
-            setTimeout(connectNative, 3000);
-        };
-
-    }catch(e){
-        setTimeout(connectNative, 3000);
-    }
+function isAlive(){
+    return bridge && bridge.readyState === WebSocket.OPEN;
 }
 
-// отправка команд в node
-function nativeClick(){
-    if(nativeWS?.readyState === 1){
-        nativeWS.send("click");
-    }
+function scheduleReconnect(){
+    if(reconnectTimer) return;
+
+    reconnectTimer = setTimeout(()=>{
+        reconnectTimer = null;
+        connectBridge();
+    },3000);
 }
 
-function nativeFullscreen(){
-    if(nativeWS?.readyState === 1){
-        nativeWS.send("fullscreen");
-    }
-}
+function connectBridge(){
 
-//
-// ================= PROXY SOCKET =================
-//
-
-function connectToProxy() {
-    try {
-        console.log('Подключение к серверу...');
-        manualClose = false;
-
-        ws = new WebSocket(PROXY_SERVER);
-
-        ws.onopen = () => {
-            console.log('✓ Proxy подключен');
-            reconnectAttempts = 0;
-            updateExtensionStatus('connected', 'Подключено');
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                if (!message.text) return;
-
-                const command = extractTextFromCommand(message.text);
-                console.log('command', command);
-                commandRun(command);
-
-            } catch (e) {
-                console.error('Ошибка обработки:', e);
-            }
-        };
-
-        ws.onclose = () => {
-            console.log('Proxy закрыт');
-            if (!manualClose) handleReconnection();
-        };
-
-        ws.onerror = () => {
-            console.log('Proxy error');
-        };
-
-    } catch {
-        handleReconnection();
-    }
-}
-
-function handleReconnection() {
-    if (reconnectAttempts >= maxReconnectAttempts) {
-        updateExtensionStatus('offline', 'Сервер недоступен');
+    if(bridge &&
+       (bridge.readyState === WebSocket.OPEN ||
+        bridge.readyState === WebSocket.CONNECTING)){
         return;
     }
 
-    reconnectAttempts++;
-    const delay = reconnectDelay * reconnectAttempts;
+    console.log("connecting bridge...");
+    bridge = new WebSocket(BRIDGE_URL);
 
-    setTimeout(connectToProxy, delay);
+    bridge.onopen = ()=>{
+        console.log("🟢 bridge connected");
+    };
+
+    bridge.onclose = ()=>{
+        console.log("🔴 bridge closed");
+        bridge = null;
+        scheduleReconnect();
+    };
+
+    bridge.onerror = ()=>{
+        try{ bridge.close(); }catch{}
+    };
+
+    bridge.onmessage = (event)=>{
+        try{
+            const msg = JSON.parse(event.data);
+            handleCommand(msg);
+        }catch{}
+    };
 }
 
+connectBridge();
+setInterval(()=>{ if(!isAlive()) connectBridge(); }, 25000);
+
+chrome.runtime.onStartup.addListener(connectBridge);
+chrome.runtime.onInstalled.addListener(connectBridge);
+
 //
-// ================= STATUS =================
+// ================= KEEP SERVICE WORKER ALIVE =================
+// главный фикс против sleep
 //
 
-function updateExtensionStatus(status, message) {
-    if(chrome.action?.setTitle){
-        chrome.action.setTitle({ title: `Alice: ${message}` });
-    }
+setInterval(()=>{
+    chrome.runtime.getPlatformInfo(()=>{});
+},20000);
 
-    chrome.storage.local.set({
-        extensionStatus: { status, message, time: Date.now() }
+//
+// ================= KEEPALIVE PORT FROM CONTENT =================
+// делает worker бессмертным пока есть вкладка
+//
+
+chrome.runtime.onConnect.addListener(port=>{
+    if(port.name !== "keepalive") return;
+
+    console.log("keepalive port connected");
+
+    port.onMessage.addListener(()=>{});
+    port.onDisconnect.addListener(()=>{
+        console.log("keepalive port disconnected");
+    });
+});
+
+//
+// ================= SEND VIDEO =================
+//
+
+function sendVideoAction(action,text){
+
+    chrome.tabs.query({active:true,currentWindow:true},tabs=>{
+        if(!tabs.length) return;
+
+        const tabId = tabs[0].id;
+
+        const payload = {
+            type:"VIDEO_CONTROL",
+            action,
+            text
+        };
+
+        try{ chrome.tabs.sendMessage(tabId,payload); }catch{}
+
+        setTimeout(()=>{
+            try{ chrome.tabs.sendMessage(tabId,payload); }catch{}
+        },1200);
     });
 }
 
 //
-// ================= COMMAND PARSER =================
+// ================= COMMAND HANDLER =================
 //
 
-function extractTextFromCommand(text) {
-    let words = text.toLowerCase().split(" ");
-    let i = 0;
+function handleCommand(msg){
+    if(!msg || !msg.action) return;
 
-    if (words[i] === 'алиса') i++;
+    console.log("CMD:",msg);
 
-    let type = 'search';
-    const searchWords = ['найди','найти','поищи','ищи','поиск'];
+    switch(msg.action){
 
-    if (words[i] === 'включи') { type = 'switch'; i++; }
-    else if (words[i] === 'закрой') { type = 'close'; i++; }
-    else if (words[i] === 'открой') { type = 'open'; i++; }
-    else if (searchWords.includes(words[i])) { i++; }
+        case "play":
+            sendVideoAction("play");
+            break;
 
-    return { type, text: words.slice(i).join(" ").trim() };
-}
+        case "pause":
+            sendVideoAction("pause");
+            break;
 
-//
-// ================= COMMAND RUN =================
-//
+        case "resume":
+            sendVideoAction("resume");
+            break;
 
-function commandRun(command) {
+        case "search":
+            openSearch(msg.text);
+            break;
 
-    // ▶ play видео
-    if (command.type === 'switch') {
-        chrome.tabs.query({active:true,currentWindow:true}, (tabs)=>{
-            if (!tabs.length) return;
-            chrome.tabs.sendMessage(tabs[0].id,{
-                type:"VIDEO_CONTROL",
-                action:"play"
-            }, ()=>{});
-        });
-    }
+        case "close":
+            closeTabs(msg.text);
+            break;
 
-    // ▶ закрыть вкладки
-    else if (command.type === 'close') {
-        chrome.tabs.query({}, tabs=>{
-            tabs.forEach(tab=>{
-                if(tab.title?.toLowerCase().includes(command.text)){
-                    chrome.tabs.remove(tab.id);
-                }
-            });
-        });
-    }
+        case "closeActive":
+            closeActiveTab();
+            break;
 
-    // ▶ поиск
-    else {
-        const url = `https://yandex.ru/search?text=${encodeURIComponent(command.text)}`;
-        openSearch(url);
+        case "open":
+            openLord();
+            break;
     }
 }
 
-function openSearch(url){
-    chrome.tabs.query({url:'https://yandex.ru/search*'}, tabs=>{
+//
+// ================= SEARCH =================
+//
+
+function openSearch(text){
+    if(searchOpening || !text) return;
+    searchOpening = true;
+
+    const q = encodeURIComponent(text);
+
+    chrome.tabs.query({url:"*://yandex.ru/search*"},tabs=>{
+
+        const url = `https://yandex.ru/search?text=${q}`;
+
         if(tabs.length){
-            chrome.tabs.update(tabs[0].id,{url,active:true});
-        } else {
-            chrome.tabs.create({url});
+            chrome.tabs.update(tabs[0].id,{url,active:true},()=>searchOpening=false);
+        }else{
+            chrome.tabs.create({url,active:true},()=>searchOpening=false);
         }
     });
+
+    setTimeout(()=> searchOpening=false,5000);
 }
 
 //
-// ================= EXTENSION EVENTS =================
+// ================= CLOSE =================
 //
 
-// старт chrome
-chrome.runtime.onStartup.addListener(()=>{
-    console.log("chrome started");
-    connectNative();
-    connectToProxy();
-});
+function closeTabs(text){
+    if(!text) return;
+    const t = text.toLowerCase();
 
-// установка
-chrome.runtime.onInstalled.addListener(()=>{
-    connectNative();
-    connectToProxy();
-});
+    chrome.tabs.query({},tabs=>{
+        tabs.forEach(tab=>{
+            if(tab.title?.toLowerCase().includes(t)){
+                chrome.tabs.remove(tab.id);
+            }
+        });
+    });
+}
 
-// держим service worker живым
-setInterval(()=>{
-    connectNative();
-}, 20000);
+function closeActiveTab(){
+
+    chrome.tabs.query({active:true,currentWindow:true},tabs=>{
+        if(!tabs.length) return;
+        const tab = tabs[0];
+        chrome.tabs.remove(tab.id);
+    });
+}
 
 //
-// ================= POPUP + IFRAME =================
+// ================= OPEN LORD =================
 //
 
-chrome.runtime.onMessage.addListener((req, sender, sendResponse)=>{
+function openLord(){
 
-    if(req.action === 'connect'){
-        connectToProxy();
-        sendResponse({ok:true});
-    }
+    chrome.tabs.query({active:true,currentWindow:true}, async tabs=>{
+        if(!tabs.length) return;
 
-    else if(req.action === 'disconnect'){
-        manualClose = true;
-        if(ws) ws.close();
-        ws = null;
-        updateExtensionStatus('off','Отключено');
-        sendResponse({ok:true});
-    }
+        const tab = tabs[0];
+        if(!tab.url || tab.url.startsWith("chrome")) return;
 
-    else if(req.action === 'status'){
-        sendResponse({ ws: ws ? ws.readyState : 3 });
-    }
-
-    // открытие iframe фильма
-    else if(req.action === "openIframe"){
-
-        if(cinemaLaunched) return;
-        cinemaLaunched = true;
-
-        chrome.tabs.create({ url: req.url, active:true }, (tab)=>{
-
-            const tabId = tab.id;
-
-            chrome.tabs.onUpdated.addListener(function listener(id, info){
-
-                if(id === tabId && info.status === "complete"){
-                    chrome.tabs.onUpdated.removeListener(listener);
-
-                    setTimeout(()=> nativeClick(), 2500);
-                    setTimeout(()=> nativeFullscreen(), 4500);
-
-                    setTimeout(()=> cinemaLaunched = false, 15000);
+        try{
+            await chrome.scripting.executeScript({
+                target:{tabId:tab.id},
+                func:()=>{
+                    const link=document.querySelector('a[href*="lordfilm"]');
+                    if(link) location.href=link.href;
                 }
             });
+        }catch{}
+    });
+}
+
+//
+// ================= FROM CONTENT =================
+//
+
+chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
+
+    if(msg.action==="openIframe"){
+        chrome.tabs.create({
+            url:msg.url,
+            active:true
         });
+        return;
     }
 
-    return true;
-});
+    if(msg.action==="status"){
+        sendResponse({connected:isAlive()});
+        return true;
+    }
 
-// первый запуск
-connectNative();
-setTimeout(connectToProxy, 1500);
+    if(msg.action==="ping"){
+        sendResponse({ok:true});
+        return true;
+    }
+});

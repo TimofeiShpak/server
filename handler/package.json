@@ -8,5 +8,11 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": ""
+  "description": "",
+  "dependencies": {
+    "@nut-tree-fork/nut-js": "^4.2.6",
+    "loudness": "^0.4.2",
+    "ps-list": "^9.0.0",
+    "ws": "^8.19.0"
+  }
 }

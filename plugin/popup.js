@@ -1,87 +1,34 @@
-const statusDiv = document.getElementById("status");
-const btnConnect = document.getElementById("connect");
-const btnDisconnect = document.getElementById("disconnect");
+const dot = document.getElementById("dot");
+const statusText = document.getElementById("status");
 
-// =====================
-// обновление UI статуса
-// =====================
+function updateStatus(){
 
-function setStatus(state, text){
-    statusDiv.className = "";
+    chrome.runtime.sendMessage({action:"status"}, response=>{
 
-    if(state === "connected"){
-        statusDiv.classList.add("on");
-    } 
-    else if(state === "reconnecting"){
-        statusDiv.classList.add("wait");
-    } 
-    else {
-        statusDiv.classList.add("off");
-    }
-
-    statusDiv.textContent = text;
-
-    // управление кнопками
-    updateButtons(state);
-}
-
-// =====================
-// показывать нужные кнопки
-// =====================
-
-function updateButtons(state){
-
-    if(state === "connected"){
-        btnConnect.style.display = "none";
-        btnDisconnect.style.display = "block";
-    }
-
-    else if(state === "reconnecting"){
-        btnConnect.style.display = "none";
-        btnDisconnect.style.display = "none";
-    }
-
-    else { // off / error
-        btnConnect.style.display = "block";
-        btnDisconnect.style.display = "none";
-    }
-}
-
-// =====================
-// получить статус
-// =====================
-
-function refreshStatus(){
-    chrome.storage.local.get("extensionStatus", (data)=>{
-        if(!data.extensionStatus){
-            setStatus("off","Нет данных");
+        if(chrome.runtime.lastError){
+            setDisconnected();
             return;
         }
 
-        const s = data.extensionStatus;
-        setStatus(s.status, s.message);
+        if(response && response.connected){
+            setConnected();
+        }else{
+            setDisconnected();
+        }
     });
 }
 
-// =====================
-// кнопки
-// =====================
+function setConnected(){
+    dot.classList.remove("disconnected");
+    dot.classList.add("connected");
+    statusText.textContent = "Подключено";
+}
 
-btnConnect.onclick = ()=>{
-    chrome.runtime.sendMessage({action:"connect"}, ()=>{
-        setTimeout(refreshStatus, 700);
-    });
-};
+function setDisconnected(){
+    dot.classList.remove("connected");
+    dot.classList.add("disconnected");
+    statusText.textContent = "Нет соединения";
+}
 
-btnDisconnect.onclick = ()=>{
-    chrome.runtime.sendMessage({action:"disconnect"}, ()=>{
-        setTimeout(refreshStatus, 500);
-    });
-};
-
-// =====================
-// автообновление
-// =====================
-
-refreshStatus();
-setInterval(refreshStatus, 2000);
+updateStatus();
+setInterval(updateStatus, 2000);
