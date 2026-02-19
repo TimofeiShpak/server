@@ -1,123 +1,118 @@
-// bridge.js
-
 const WebSocket = require("ws");
 const psList = require("ps-list").default;
 const { exec } = require("child_process");
-const { mouse, Button, Point, screen } = require("@nut-tree-fork/nut-js");
 const loudness = require("loudness");
 const os = require("os");
+
+const { mouse, Button, Point, screen } = require("@nut-tree-fork/nut-js");
 
 const REMOTE_SERVER = "wss://server-03cr.onrender.com";
 const LOCAL_PORT = 3001;
 
 let extensionWS = null;
 let proxyWS = null;
-
 let heartbeatInterval = null;
 let keepAliveInterval = null;
 let reconnectTimer = null;
 
+const delay = ms => new Promise(r=>setTimeout(r,ms));
+
 //
-// ======================
+// ======================================================
 // UTILS
-// ======================
+// ======================================================
 //
 
-const delay = ms => new Promise(r => setTimeout(r, ms));
+async function getPlayerPoint(isCenter){
+    const width = await screen.width();
+    const height = await screen.height();
+    let heightPoint = isCenter ? height/2 : height*0.35;
+    return new Point(
+        Math.floor(width/2),
+        Math.floor(heightPoint) // safe zone
+    );
+}
 
-function log(...a){
-    console.log("[bridge]", ...a);
+async function click(point, pause=250){
+    await mouse.move(point);
+    await delay(pause);
+    await mouse.click(Button.LEFT);
 }
 
 //
-// ======================
+// ======================================================
 // CHROME START
-// ======================
+// ======================================================
 //
 
 async function ensureChromeRunning(){
 
     try{
         const list = await psList();
-        const chrome = list.find(p =>
-            p.name.toLowerCase().includes("chrome")
-        );
+        const chrome = list.find(p=>p.name.toLowerCase().includes("chrome"));
+        if(chrome) return;
 
-        if(chrome){
-            log("chrome running");
-            return;
-        }
+        console.log("starting chrome...");
 
-        log("starting chrome...");
-
-        if(os.platform() === "win32"){
+        if(os.platform()==="win32"){
             exec(`start "" chrome`);
-        }else if(os.platform() === "darwin"){
+        }else if(os.platform()==="darwin"){
             exec(`open -a "Google Chrome"`);
         }else{
             exec(`google-chrome`);
         }
 
         await delay(4000);
-
     }catch(e){
-        log("chrome check error", e);
+        console.log("chrome error",e);
     }
 }
 
 //
-// ======================
+// ======================================================
 // WAIT EXTENSION
-// ======================
+// ======================================================
 //
 
 async function waitExtension(){
-
     for(let i=0;i<40;i++){
-        if(extensionWS && extensionWS.readyState === 1){
-            return true;
-        }
+        if(extensionWS && extensionWS.readyState===1) return true;
         await delay(500);
     }
-
-    log("extension not connected");
+    console.log("extension not connected");
     return false;
 }
 
 //
-// ======================
+// ======================================================
 // LOCAL WS SERVER
-// ======================
+// ======================================================
 //
 
-const wss = new WebSocket.Server({ port: LOCAL_PORT });
-log("local bridge started");
+const wss = new WebSocket.Server({port:LOCAL_PORT});
+console.log("local bridge started");
 
 wss.on("connection", ws=>{
 
-    log("extension connected");
+    console.log("extension connected");
 
-    if(extensionWS && extensionWS.readyState === 1){
-        try{ extensionWS.close(); }catch{}
+    if(extensionWS && extensionWS.readyState===1){
+        try{extensionWS.close();}catch{}
     }
 
     extensionWS = ws;
 
-    ws.on("close", ()=>{
-        if(extensionWS === ws){
-            extensionWS = null;
-        }
-        log("extension disconnected");
+    ws.on("close",()=>{
+        if(extensionWS===ws) extensionWS=null;
+        console.log("extension disconnected");
     });
-
-    ws.on("error", ()=>{});
 });
 
 async function sendToExtension(obj){
 
-    for(let i=0;i<12;i++){
+    for(let i=0;i<10;i++){
 
-        if(extensionWS && extensionWS.readyState === 1){
+        if(extensionWS && extensionWS.readyState===1){
             try{
                 extensionWS.send(JSON.stringify(obj));
                 return true;
@@ -127,66 +122,58 @@ async function sendToExtension(obj){
         await delay(400);
     }
 
-    log("send fail (extension offline)");
+    console.log("send fail", obj);
     return false;
 }
 
 //
-// ======================
+// ======================================================
 // PROXY CONNECT
-// ======================
+// ======================================================
 //
 
 function clearIntervals(){
-    if(heartbeatInterval){
-        clearInterval(heartbeatInterval);
-        heartbeatInterval = null;
-    }
-    if(keepAliveInterval){
-        clearInterval(keepAliveInterval);
-        keepAliveInterval = null;
-    }
+    if(heartbeatInterval) clearInterval(heartbeatInterval);
+    if(keepAliveInterval) clearInterval(keepAliveInterval);
 }
 
 function scheduleReconnect(){
     if(reconnectTimer) return;
 
-    reconnectTimer = setTimeout(()=>{
-        reconnectTimer = null;
+    reconnectTimer=setTimeout(()=>{
+        reconnectTimer=null;
         connectProxy();
-    }, 4000);
+    },4000);
 }
 
 function connectProxy(){
 
     if(proxyWS &&
-       (proxyWS.readyState === 1 ||
-        proxyWS.readyState === 0)){
+       (proxyWS.readyState===1 || proxyWS.readyState===0)){
         return;
     }
 
-    log("connecting proxy...");
-
-    try{
-        proxyWS = new WebSocket(REMOTE_SERVER);
-    }catch(e){
-        scheduleReconnect();
-        return;
+    if(proxyWS){
+        try{proxyWS.terminate();}catch{}
+        proxyWS=null;
     }
 
-    proxyWS.on("open", ()=>{
-        log("✓ proxy connected");
+    console.log("connecting proxy...");
+    proxyWS = new WebSocket(REMOTE_SERVER);
+
+    proxyWS.on("open",()=>{
+        console.log("✓ proxy connected");
 
         clearIntervals();
 
-        heartbeatInterval = setInterval(()=>{
-            if(proxyWS?.readyState === 1){
-                try{ proxyWS.ping(); }catch{}
+        heartbeatInterval=setInterval(()=>{
+            if(proxyWS?.readyState===1){
+                try{proxyWS.ping();}catch{}
             }
         },25000);
 
-        keepAliveInterval = setInterval(()=>{
-            if(proxyWS?.readyState === 1){
+        keepAliveInterval=setInterval(()=>{
+            if(proxyWS?.readyState===1){
                 try{
                     proxyWS.send(JSON.stringify({type:"keepalive"}));
                 }catch{}
@@ -194,38 +181,75 @@ function connectProxy(){
         },600000);
     });
 
-    proxyWS.on("message", async data=>{
+    proxyWS.on("message",async data=>{
         try{
-            const msg = JSON.parse(data.toString());
-            if(!msg?.text || typeof msg.text !== "string") return;
-
-            log("voice:", msg.text);
+            const msg=JSON.parse(data.toString());
+            if(!msg?.text) return;
             await handleCommand(msg.text);
-
         }catch(e){
-            log("parse error", e);
+            console.log("parse error",e);
         }
     });
 
-    proxyWS.on("close", ()=>{
-        log("proxy closed");
+    proxyWS.on("close",()=>{
+        console.log("proxy closed");
         clearIntervals();
-        proxyWS = null;
+        proxyWS=null;
         scheduleReconnect();
     });
 
-    proxyWS.on("error", ()=>{
-        log("proxy error");
-        try{ proxyWS.close(); }catch{}
+    proxyWS.on("error",()=>{
+        console.log("proxy error");
+        try{proxyWS.close();}catch{}
     });
 }
 
 connectProxy();
 
 //
-// ======================
-// COMMANDS
-// ======================
+// ======================================================
+// PLAYER CONTROL
+// ======================================================
+//
+
+async function clickPlayer(){
+    try{
+        const movePoint = await getPlayerPoint();
+        await mouse.move(movePoint);
+        const clickPoint = await getPlayerPoint(true);
+        await click(clickPoint);
+    }catch(e){
+        console.log("mouse error",e);
+    }
+}
+
+async function playAndFullscreen(){
+
+    await sendToExtension({action:"play"});
+    await delay(2000);
+
+    try{
+        const p = await getPlayerPoint();
+
+        // запуск
+        await click(p,300);
+        await delay(1500);
+
+        // fullscreen dblclick
+        await click(p,200);
+        await click(p,200);
+
+        console.log("fullscreen ok");
+
+    }catch(e){
+        console.log("mouse error",e);
+    }
+}
+
+//
+// ======================================================
+// COMMAND HANDLER
+// ======================================================
 //
 
 async function handleCommand(text){
@@ -237,151 +261,105 @@ async function handleCommand(text){
 
     if(!text) return;
 
-    const words = text.split(" ");
-    const action = words[0];
-    const payload = words.slice(1).join(" ");
+    const words=text.split(" ");
+    const action=words[0];
+    const payload=words.slice(1).join(" ");
 
     await ensureChromeRunning();
     await waitExtension();
+    await delay(500);
 
     //
-    // =====================================================
-    // ▶ SMART PLAY (включи фильм марвел)
-    // =====================================================
+    // ▶ SMART PLAY
     //
-    if(action === "включи" && payload){
+    if(action==="включи" && payload){
 
-        console.log("SMART PLAY:", payload);
+        console.log("SMART PLAY:",payload);
 
         // поиск
         await sendToExtension({
             action:"search",
-            text: `${payload} смотреть онлайн бесплатно lord`
+            text:`${payload} смотреть бесплатно lord`
         });
 
-        await delay(3500);
+        await delay(2000);
 
         // открыть страницу фильма
         await sendToExtension({
             action:"open",
-            text: payload
+            text:payload
         });
 
+        console.log("waiting film page...");
+
+        // ВАЖНО: ждём загрузки новой вкладки
         await delay(6000);
 
-        // запуск видео
+        // теперь play пойдёт уже в новую вкладку
         await playAndFullscreen();
         return;
     }
 
     //
-    // ▶ PLAY (просто "включи")
+    // ▶ PLAY
     //
-    if(action === "включи"){
+    if(action==="включи"){
         await playAndFullscreen();
         return;
     }
 
     //
-    // ▶ OPEN
+    // ▶ PAUSE / RESUME
     //
-    if(action === "открой"){
-        await sendToExtension({action:"open", text: payload});
+    if(action==="пауза" || action==="продолжи" || action==="продолжить"){
+        await clickPlayer();
         return;
     }
 
     //
     // ▶ SEARCH
     //
-    if(action === "найди" || action === "поиск"){
-        await sendToExtension({action:"search", text: payload});
+    if(action==="найди" || action==="поиск"){
+        await sendToExtension({action:"search",text:payload});
+        return;
+    }
+
+    //
+    // ▶ OPEN
+    //
+    if(action==="открой"){
+        await sendToExtension({action:"open",text:payload});
         return;
     }
 
     //
     // ▶ CLOSE
     //
-    if(action === "закрой"){
+    if(action==="закрой"){
 
         if(!payload){
             await sendToExtension({action:"closeActive"});
         }else{
-            await sendToExtension({action:"close", text: payload});
+            await sendToExtension({action:"close",text:payload});
         }
-
-        return;
-    }
-
-    //
-    // ▶ PAUSE
-    //
-    if(action === "пауза"){
-        await sendToExtension({action:"pause"});
-        return;
-    }
-
-    //
-    // ▶ RESUME
-    //
-    if(action === "продолжи"){
-        await sendToExtension({action:"resume"});
         return;
     }
 
     //
     // ▶ VOLUME
     //
-    if(action === "громкость"){
+    if(action==="громкость"){
 
-        const volumes = {
+        const volumes={
             'ноль':0,'один':1,'два':2,'три':3,'четыре':4,'пять':5,
             'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10
         };
 
-        const num = volumes[payload];
+        const num=volumes[payload];
 
-        if(num !== undefined){
-            await loudness.setVolume(num * 10);
-            console.log("volume:", num*10);
+        if(num!==undefined){
+            await loudness.setVolume(num*10);
+            console.log("volume:",num*10);
         }
-
-        return;
     }
 }
-
-//
-// =====================================================
-// ОБЩАЯ ФУНКЦИЯ PLAY + FULLSCREEN
-// =====================================================
-//
-
-async function playAndFullscreen(){
-
-    console.log("PLAY");
-
-    await sendToExtension({action:"play"});
-    await delay(4000);
-
-    try{
-        const width = await screen.width();
-        const height = await screen.height();
-
-        const x = Math.floor(width/2);
-        const y = Math.floor(height*0.28);
-
-        await mouse.move(new Point(x,y));
-        await delay(250);
-
-        await mouse.click(Button.LEFT);
-        await delay(800);
-
-        await mouse.click(Button.LEFT);
-        await mouse.click(Button.LEFT);
-
-        console.log("fullscreen ok");
-
-    }catch(e){
-        console.log("mouse error", e);
-    }
-}
-

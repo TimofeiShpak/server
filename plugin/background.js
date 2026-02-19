@@ -127,14 +127,6 @@ function handleCommand(msg){
             sendVideoAction("play");
             break;
 
-        case "pause":
-            sendVideoAction("pause");
-            break;
-
-        case "resume":
-            sendVideoAction("resume");
-            break;
-
         case "search":
             openSearch(msg.text);
             break;

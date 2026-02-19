@@ -4,201 +4,150 @@ console.log("🎬 content loaded:", location.href);
 
 //
 // ==================================================
-// KEEPALIVE PORT (AUTO RECONNECT, BFCache SAFE)
+// KEEPALIVE
 // ==================================================
 //
 
-let keepPort = null;
+let keepPort=null;
 
 function connectKeepAlive(){
-
     try{
-        keepPort = chrome.runtime.connect({ name: "keepalive" });
+        keepPort=chrome.runtime.connect({name:"keepalive"});
     }catch{
-        setTimeout(connectKeepAlive, 2000);
+        setTimeout(connectKeepAlive,2000);
         return;
     }
 
     keepPort.onDisconnect.addListener(()=>{
-        console.log("keepalive disconnected → reconnect");
-        keepPort = null;
-        setTimeout(connectKeepAlive, 2000);
+        keepPort=null;
+        setTimeout(connectKeepAlive,2000);
     });
 }
-
 connectKeepAlive();
 
 setInterval(()=>{
-    try{
-        keepPort?.postMessage({ ping:true });
-    }catch{}
-}, 20000);
+    try{keepPort?.postMessage({ping:true});}catch{}
+},20000);
 
 //
 // ==================================================
-// STATE FLAGS
+// UTILS
 // ==================================================
 //
 
-let iframeOpening = false;
-let iframeOpenedOnce = false;
-let playRunning = false;
-
-const delay = ms => new Promise(r => setTimeout(r, ms));
+const delay = ms => new Promise(r=>setTimeout(r,ms));
 
 //
 // ==================================================
-// FIND MAIN VIDEO
+// FIND MAIN IFRAME
 // ==================================================
 //
 
-function findMainVideo(){
+function findMainIframe(){
 
-    const videos = [...document.querySelectorAll("video")];
-    if(!videos.length) return null;
-
-    return videos.sort((a,b)=>
-        (b.clientWidth*b.clientHeight) -
-        (a.clientWidth*a.clientHeight)
-    )[0];
-}
-
-async function safePlay(video){
-
-    if(!video) return false;
-
-    try{
-        await video.play();
-        return true;
-    }catch{
-        try{
-            video.muted = true;
-            await video.play();
-            video.muted = false;
-            return true;
-        }catch{}
-    }
-
-    return false;
-}
-
-//
-// ==================================================
-// FIND MAIN IFRAME (BIGGEST ONLY)
-// ==================================================
-//
-
-function findIframeUrl(){
-
-    const iframes = [...document.querySelectorAll("iframe")];
+    const iframes=[...document.querySelectorAll("iframe")];
     if(!iframes.length) return null;
 
-    const candidates = [];
+    let best=null;
+    let bestArea=0;
 
     for(const iframe of iframes){
 
-        let url = null;
+        const rect=iframe.getBoundingClientRect();
+        const area=rect.width*rect.height;
 
-        if(iframe.src && iframe.src.startsWith("http")){
-            url = iframe.src;
+        if(area<60000) continue;
+
+        if(area>bestArea){
+            bestArea=area;
+            best=iframe;
         }
-
-        if(!url && iframe.dataset){
-            for(const key in iframe.dataset){
-                const val = iframe.dataset[key];
-                if(typeof val === "string" && val.startsWith("http")){
-                    url = val;
-                    break;
-                }
-            }
-        }
-
-        if(!url) continue;
-
-        const rect = iframe.getBoundingClientRect();
-        const area = rect.width * rect.height;
-
-        // игнорим рекламу и мелкие iframe
-        if(area < 50000) continue;
-
-        candidates.push({ url, area });
     }
 
-    if(!candidates.length) return null;
-
-    candidates.sort((a,b)=> b.area - a.area);
-
-    return candidates[0].url;
+    return best;
 }
 
 //
 // ==================================================
-// PLAY SEQUENCE
+// EXTRACT DATASET URL
+// ==================================================
+//
+
+function extractDatasetUrl(iframe){
+
+    if(!iframe?.dataset) return null;
+
+    for(const key in iframe.dataset){
+        const val=iframe.dataset[key];
+        if(typeof val==="string" && val.startsWith("http")){
+            return val;
+        }
+    }
+
+    return null;
+}
+
+//
+// ==================================================
+// CINEMA MODE (только если iframe уже работает)
+// ==================================================
+//
+
+function enableCinemaMode(iframe){
+
+    if(!iframe) return false;
+
+    console.log("cinema mode stretch");
+
+    let el = iframe;
+
+    // поднимаемся до body
+    while(el && el !== document.body){
+
+        el.style.position = "fixed";
+        el.style.top = "0";
+        el.style.left = "0";
+        el.style.width = "100vw";
+        el.style.height = "100vh";
+        el.style.margin = "0";
+        el.style.padding = "0";
+        el.style.zIndex = "999999";
+
+        el = el.parentElement;
+    }
+
+    // body отдельно
+    document.body.style.margin = "0";
+    document.body.style.padding = "0";
+    document.body.style.background = "black";
+    document.body.style.overflow = "hidden";
+
+    return true;
+}
+
+//
+// ==================================================
+// PLAY LOGIC
 // ==================================================
 //
 
 async function startPlay(){
 
-    if(playRunning) return;
-    playRunning = true;
+    console.log("startPlay");
 
-    for(let i=0;i<10;i++){
+    for(let i=0;i<15;i++){
 
-        const video = findMainVideo();
-
-        if(video){
-            const ok = await safePlay(video);
-            if(ok){
-                playRunning = false;
-                return;
-            }
+        const iframe=findMainIframe();
+        if(!iframe){
+            await delay(1000);
+            continue;
         }
 
-        if(!iframeOpening && !iframeOpenedOnce){
-
-            const iframeUrl = findIframeUrl();
-
-            if(iframeUrl){
-                iframeOpening = true;
-                iframeOpenedOnce = true;
-
-                console.log("opening iframe:", iframeUrl);
-
-                chrome.runtime.sendMessage({
-                    action:"openIframe",
-                    url: iframeUrl
-                });
-
-                setTimeout(()=>{
-                    iframeOpening = false;
-                },5000);
-            }
-        }
-
-        await delay(1200);
+        enableCinemaMode(iframe);
+        console.log("iframe src found → using page");
     }
 
-    playRunning = false;
-}
-
-//
-// ==================================================
-// CONTROLS
-// ==================================================
-//
-
-function pauseVideo(){
-    const video = findMainVideo();
-    if(video) video.pause();
-}
-
-async function resumeVideo(){
-    const video = findMainVideo();
-    if(video){
-        await safePlay(video);
-    }else{
-        startPlay();
-    }
+    console.log("iframe not found");
 }
 
 //
@@ -209,9 +158,10 @@ async function resumeVideo(){
 
 chrome.runtime.onMessage.addListener((req)=>{
 
-    if(!req || req.type !== "VIDEO_CONTROL") return;
+    if(!req || req.type!=="VIDEO_CONTROL") return;
 
-    if(req.action === "play") startPlay();
-    if(req.action === "pause") pauseVideo();
-    if(req.action === "resume") resumeVideo();
+    if(req.action==="play"){
+        startPlay();
+        return;
+    }
 });
